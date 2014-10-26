@@ -1,0 +1,112 @@
+Practical Machine Learning - Analysis of HAR (Human Activity Recognition) Data Set
+=======================================================
+
+Summary
+========================================================
+It is now possible with many devices currently available on the market to 
+log data on personal activities.  People often record the quantity of the activies they perform but don't generally record the "quality" of those activities.  This is an analysis of the HAR (Human Activity Recognition) data set to create a prediction model to predict the manner in which the participant performed the exercises for a testing dataset.  
+
+Given the correlation between several of the features in the dataset, PCA preprocessing was done and then a model trained using the Random Forest methodology.  This netted a model accuracy of 97.3 .  Another Random Forest model was creating WITHOUT preprocessing, netting model accuracy of 99.46%.  Given the greater accuracy of the model without pre-processing, this is the model that was utilized to predict the classe feature for the test dataset.
+
+Data Processing/Exploration 
+========================================================
+Two data sets were loaded from the HAR URL (https://d396qusza40orc.cloudfront.net/predmachlearn/):  the first is a training set of 19622 entries of 160 features and the second is the test set of 20 entries with 160 features.
+
+The majority of of the columns contain missing (NA) values.  These columns were removed from the data set as they can provide no meaningful information towards the analysis.  Further, the first 7 columns of each data set contains data that does not contribute to the analysis (e.g. "X", user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window") so these were also removed.
+
+```{r echo=FALSE}
+setwd("C:\\leesa\\training\\coursera\\PracticalMachineLearning")
+```
+
+```{r}
+library(corrplot)
+library(caret)
+
+#Read training and test data sets
+PMLtrainingALL<-read.csv("pml-training.csv", na.strings=c("NA",""))
+PMLtestingALL<-read.csv("pml-testing.csv", na.strings=c("NA",""))
+
+NAvalues <- apply(PMLtrainingALL, 2, function(x) { sum(is.na(x))})
+PMLtraining<-PMLtrainingALL[,which(NAvalues==0)]
+PMLtraining<- PMLtraining[,-(1:7)]
+
+NAvalues <- apply(PMLtestingALL, 2, function(x) { sum(is.na(x))})
+PMLtesting<-PMLtestingALL[,which(NAvalues==0)]
+PMLtesting<- PMLtesting[,-(1:7)]
+```
+
+
+The summary of the "classe" variable (the variable we will be predicting) shows: 
+```{r}
+summary(PMLtraining$classe)
+```
+
+Initially, the correlations between features were checked to determine if there were any strong correlations between variables.
+
+```{r}
+CorrMtrx<- abs(cor(PMLtraining[,-53]))
+diag(CorrMtrx) <- 0
+which(CorrMtrx > 0.95, arr.ind=T)
+```
+
+A plot of the correlations between the remaining factors visually shows those features with darker colors indicating strong correlations.
+
+```{r}
+corrplot(cor(PMLtraining[,-53]))
+```
+
+
+Model Creation with Pre-processing (PCA)
+========================================================
+Given the strong correlation between several of the features, preprocessing on the data set was performed to whittle down the relevant variables for analysis.  The training data is subset into a training and test set in order to create and test.
+
+```{r}
+inTrain <- createDataPartition(y=PMLtraining$classe, p=.7, list=FALSE)
+PMLtraining_train <- PMLtraining[inTrain,]
+PMLtraining_test <- PMLtraining[-inTrain,]
+
+```
+
+PCA preprocessing was run on 70% of the training data.  After proprocessing, the "predict" function was called on both the training and test subsets of data.  A model was then trained utilizing "random forest", with cross validation of 4-folds.
+
+```{r}
+preProc <- preProcess(PMLtraining[,-53], method="pca", thresh = 0.98)
+trainPCA <- predict(preProc, PMLtraining_train[,-53])
+trainPCvalidate<-predict(preProc, PMLtraining_test[,-53])
+
+modelFit<-train(PMLtraining_train$classe ~ . , method = "rf", data=trainPCA, trControl=trainControl(method = "cv", number = 4), importance=TRUE)
+```
+
+The confusion matrix for this model indicates an accuracy of 97.3% (95% confidence between 96.9% and 97.7%), and an out-of-sample error of 2.7%.  
+
+```{r}
+
+PCApredVal <- predict(modelFit, trainPCvalidate)
+confusionMatrix(PMLtraining_test$classe, PCApredVal)
+
+```
+
+Model Creation without Pre-processing
+========================================================
+
+Another model was created using the Random Forest methodology without PCA preprocessing to determine the accuracy that could be derived.
+
+The confusion matrix for the resulting model on the testing submit shows a model accuracy of 99.46, out-of-sample error of .54%
+
+```{r}
+modFitRF <- randomForest(classe ~. , data = PMLtraining_train, ntree=500)
+RFPredict<-predict(modFitRF, PMLtraining_test)
+confusionMatrix(RFPredict, PMLtraining_test$classe)
+```
+
+Given the greater accuracy of the RF model sans PCA, this was the model leveraged to perform the final test.
+
+Results
+========================================================
+
+The final prediction achieved 100% accuracy of the 20 test records.
+```{r}
+RFFinalPrediction <-predict(modFitRF, PMLtesting)
+RFFinalPrediction
+```
+
